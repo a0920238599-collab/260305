@@ -1,0 +1,5 @@
+{
+  "name": "SKU 销量增长分析工具",
+  "description": "一款用于分析电商SKU近期销量趋势的工具。支持导入Excel表格，自动计算近30天销量及近期增长率，并通过散点图可视化展示，帮助识别爆款产品。",
+  "requestFramePermissions": []
+}
