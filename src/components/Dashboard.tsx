@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ZAxis, Cell } from 'recharts';
-import { Filter, ArrowUpRight, TrendingUp, ShoppingBag, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ZAxis, Cell, LineChart, Line } from 'recharts';
+import { Filter, ArrowUpRight, TrendingUp, ShoppingBag, Download, ChevronLeft, ChevronRight, X, Copy, Check } from 'lucide-react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
 import clsx from 'clsx';
@@ -12,6 +12,7 @@ interface SKUData {
   growthRatio: number; // (Last 7 Days) / (Previous 21 Days)
   last7DaysSales: number;
   previous21DaysSales: number;
+  dailySales: { date: string; count: number }[];
 }
 
 interface DashboardProps {
@@ -20,14 +21,16 @@ interface DashboardProps {
 }
 
 export function Dashboard({ data, onReset }: DashboardProps) {
-  const [minVolume, setMinVolume] = useState<number>(10);
-  const [minGrowth, setMinGrowth] = useState<number>(2.0);
+  const [minVolume, setMinVolume] = useState<number>(20);
+  const [minGrowth, setMinGrowth] = useState<number>(1.0);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [selectedSku, setSelectedSku] = useState<SKUData | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Filtered data for the list
   const filteredData = useMemo(() => {
-    return data.filter(item => item.last30DaysSales >= minVolume && item.growthRatio >= minGrowth);
+    return data.filter(item => item.last7DaysSales >= minVolume && item.growthRatio >= minGrowth);
   }, [data, minVolume, minGrowth]);
 
   // Sort by growth ratio for the list
@@ -63,10 +66,22 @@ export function Dashboard({ data, onReset }: DashboardProps) {
     XLSX.writeFile(wb, "sku_analysis_export.xlsx");
   };
 
+  const handleCopyData = () => {
+    const textToCopy = sortedFilteredData.map(item => `${item.sku}\t${item.last30DaysSales}`).join('\n');
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const handleSkuClick = (skuData: SKUData) => {
+    setSelectedSku(skuData);
+  };
+
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const item = payload[0].payload;
-      const isSelected = item.last30DaysSales >= minVolume && item.growthRatio >= minGrowth;
+      const isSelected = item.last7DaysSales >= minVolume && item.growthRatio >= minGrowth;
       return (
         <div className={clsx(
           "bg-white p-4 border shadow-lg rounded-lg text-sm",
@@ -76,8 +91,8 @@ export function Dashboard({ data, onReset }: DashboardProps) {
           <p className="text-slate-500 text-xs mb-2">{item.shopName}</p>
           <div className="space-y-1">
             <p className="flex justify-between gap-4">
-              <span className="text-slate-500">近30天销量:</span>
-              <span className="font-mono font-medium">{item.last30DaysSales}</span>
+              <span className="text-slate-500">近7天销量:</span>
+              <span className="font-mono font-medium">{item.last7DaysSales}</span>
             </p>
             <p className="flex justify-between gap-4">
               <span className="text-slate-500">增长倍率:</span>
@@ -86,11 +101,12 @@ export function Dashboard({ data, onReset }: DashboardProps) {
               </span>
             </p>
             <div className="border-t border-slate-100 my-1 pt-1 text-xs text-slate-400">
-              <p>近7天: {item.last7DaysSales} | 前21天: {item.previous21DaysSales}</p>
+              <p>30天: {item.last30DaysSales} | 前21天: {item.previous21DaysSales}</p>
             </div>
             {!isSelected && (
               <p className="text-xs text-amber-500 mt-1 italic">未达到筛选标准</p>
             )}
+            <p className="text-xs text-blue-500 mt-2 text-center">点击查看详情</p>
           </div>
         </div>
       );
@@ -99,7 +115,85 @@ export function Dashboard({ data, onReset }: DashboardProps) {
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto p-6 space-y-6">
+    <div className="w-full max-w-7xl mx-auto p-6 space-y-6 relative">
+      {/* Modal */}
+      {selectedSku && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedSku(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                  <ShoppingBag className="text-blue-600" size={20} />
+                  {selectedSku.sku}
+                </h2>
+                <p className="text-slate-500 text-sm mt-1">{selectedSku.shopName}</p>
+              </div>
+              <button 
+                onClick={() => setSelectedSku(null)}
+                className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                  <p className="text-xs text-blue-600 font-medium mb-1">近30天销量</p>
+                  <p className="text-2xl font-bold text-slate-900">{selectedSku.last30DaysSales}</p>
+                </div>
+                <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                  <p className="text-xs text-emerald-600 font-medium mb-1">增长倍率</p>
+                  <p className="text-2xl font-bold text-slate-900">{selectedSku.growthRatio.toFixed(2)}x</p>
+                </div>
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-xs text-slate-500 font-medium mb-1">近7天销量</p>
+                  <p className="text-2xl font-bold text-slate-900">{selectedSku.last7DaysSales}</p>
+                </div>
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-xs text-slate-500 font-medium mb-1">前21天销量</p>
+                  <p className="text-2xl font-bold text-slate-900">{selectedSku.previous21DaysSales}</p>
+                </div>
+              </div>
+
+              <div className="h-[400px] w-full bg-white rounded-xl border border-slate-100 p-4">
+                <h3 className="text-sm font-semibold text-slate-700 mb-4">近30天销售趋势</h3>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={selectedSku.dailySales} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis 
+                      dataKey="date" 
+                      tick={{ fontSize: 10, fill: '#64748b' }} 
+                      tickFormatter={(val) => val.slice(5)} // Show MM-DD
+                      axisLine={false}
+                      tickLine={false}
+                      dy={10}
+                    />
+                    <YAxis 
+                      tick={{ fontSize: 10, fill: '#64748b' }} 
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      labelStyle={{ color: '#64748b', fontSize: '12px', marginBottom: '4px' }}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="count" 
+                      stroke="#3b82f6" 
+                      strokeWidth={3}
+                      dot={{ r: 3, fill: '#3b82f6', strokeWidth: 0 }}
+                      activeDot={{ r: 6, strokeWidth: 0 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 pb-6">
         <div>
@@ -112,6 +206,13 @@ export function Dashboard({ data, onReset }: DashboardProps) {
           </p>
         </div>
         <div className="flex gap-3">
+          <button 
+            onClick={handleCopyData}
+            className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-2"
+          >
+            {copied ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
+            {copied ? "已复制" : "复制SKU及销量"}
+          </button>
           <button 
             onClick={handleExport}
             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
@@ -136,7 +237,7 @@ export function Dashboard({ data, onReset }: DashboardProps) {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2">
-            <label className="text-sm text-slate-600 font-medium">最小订单量 (近30天)</label>
+            <label className="text-sm text-slate-600 font-medium">最小订单量 (近7天)</label>
             <div className="flex items-center gap-3">
               <input 
                 type="number" 
@@ -174,10 +275,10 @@ export function Dashboard({ data, onReset }: DashboardProps) {
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis 
                 type="number" 
-                dataKey="last30DaysSales" 
-                name="近30天销量" 
+                dataKey="last7DaysSales" 
+                name="近7天销量" 
                 unit="单" 
-                label={{ value: '近30天销量', position: 'bottom', offset: 0 }}
+                label={{ value: '近7天销量', position: 'bottom', offset: 0 }}
                 tick={{ fontSize: 12, fill: '#64748b' }}
               />
               <YAxis 
@@ -189,14 +290,15 @@ export function Dashboard({ data, onReset }: DashboardProps) {
                 tick={{ fontSize: 12, fill: '#64748b' }}
               />
               <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3' }} />
-              <Scatter name="SKUs" data={data} fill="#94a3b8" fillOpacity={0.5}>
+              <Scatter name="SKUs" data={data} fill="#94a3b8" fillOpacity={0.5} onClick={(data) => handleSkuClick(data.payload)}>
                 {data.map((entry, index) => {
-                  const isSelected = entry.last30DaysSales >= minVolume && entry.growthRatio >= minGrowth;
+                  const isSelected = entry.last7DaysSales >= minVolume && entry.growthRatio >= minGrowth;
                   return (
                     <Cell 
                       key={`cell-${index}`} 
                       fill={isSelected ? '#10b981' : '#94a3b8'} 
                       fillOpacity={isSelected ? 0.8 : 0.3}
+                      className="cursor-pointer hover:opacity-100 transition-opacity"
                     />
                   );
                 })}
@@ -211,7 +313,7 @@ export function Dashboard({ data, onReset }: DashboardProps) {
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-emerald-500 opacity-80"></div>
-            <span>符合筛选条件</span>
+            <span>符合筛选条件 (点击查看详情)</span>
           </div>
         </div>
       </div>
@@ -269,7 +371,11 @@ export function Dashboard({ data, onReset }: DashboardProps) {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {paginatedData.map((item, idx) => (
-                <div key={`${item.sku}-${idx}`} className="p-4 rounded-lg border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/30 transition-all group bg-white shadow-sm hover:shadow-md">
+                <div 
+                  key={`${item.sku}-${idx}`} 
+                  onClick={() => handleSkuClick(item)}
+                  className="p-4 rounded-lg border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/30 transition-all group bg-white shadow-sm hover:shadow-md cursor-pointer"
+                >
                   <div className="flex justify-between items-start mb-2">
                     <div className="font-medium text-slate-800 truncate flex-1 pr-2" title={item.sku}>
                       <span className="text-xs text-slate-400 mr-1">#{(currentPage - 1) * pageSize + idx + 1}</span>
@@ -285,11 +391,11 @@ export function Dashboard({ data, onReset }: DashboardProps) {
                       <span className="font-medium text-slate-700 truncate max-w-[120px]" title={item.shopName}>{item.shopName}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>30天销量:</span>
-                      <span className="font-mono">{item.last30DaysSales}</span>
+                      <span>近7天销量:</span>
+                      <span className="font-mono">{item.last7DaysSales}</span>
                     </div>
                     <div className="flex justify-between border-t border-slate-100 pt-1 mt-1">
-                      <span>近7天: {item.last7DaysSales}</span>
+                      <span>30天: {item.last30DaysSales}</span>
                       <span>前21天: {item.previous21DaysSales}</span>
                     </div>
                   </div>

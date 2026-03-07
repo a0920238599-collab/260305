@@ -16,6 +16,7 @@ interface SKUData {
   growthRatio: number;
   last7DaysSales: number;
   previous21DaysSales: number;
+  dailySales: { date: string; count: number }[];
 }
 
 export default function App() {
@@ -90,30 +91,42 @@ export default function App() {
       const last7DaysStart = maxDate - (7 * dayMs);
       const last30DaysStart = maxDate - (30 * dayMs);
       const previous21DaysStart = maxDate - (28 * dayMs); // 28 days ago
-      // Range 1: Last 7 days: (maxDate - 7d) to maxDate
-      // Range 2: Previous 21 days: (maxDate - 28d) to (maxDate - 7d)
-      // Range 3: Last 30 days: (maxDate - 30d) to maxDate
-
+      
       // Aggregate data by SKU
       const skuMap = new Map<string, { 
         shopName: string, 
         last7: number, 
         prev21: number, 
-        last30: number 
+        last30: number,
+        dailyCounts: Map<string, number>
       }>();
+
+      // Helper to format date key YYYY-MM-DD
+      const formatDateKey = (ts: number) => {
+        const d = new Date(ts);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      };
 
       validRows.forEach(row => {
         if (!skuMap.has(row.sku)) {
-          skuMap.set(row.sku, { shopName: row.shopName, last7: 0, prev21: 0, last30: 0 });
+          skuMap.set(row.sku, { 
+            shopName: row.shopName, 
+            last7: 0, 
+            prev21: 0, 
+            last30: 0,
+            dailyCounts: new Map()
+          });
         }
         const entry = skuMap.get(row.sku)!;
 
         // Check ranges
-        // Note: We use >= start and <= end logic
-        
         // Last 30 Days
         if (row.timestamp > last30DaysStart) {
           entry.last30++;
+          
+          // Track daily sales for the last 30 days
+          const dateKey = formatDateKey(row.timestamp);
+          entry.dailyCounts.set(dateKey, (entry.dailyCounts.get(dateKey) || 0) + 1);
         }
 
         // Last 7 Days
@@ -129,14 +142,27 @@ export default function App() {
 
       // Convert to array and calculate ratios
       const results: SKUData[] = [];
+      
+      // Generate array of last 30 days dates for consistent charting
+      const last30DaysDates: string[] = [];
+      for (let i = 29; i >= 0; i--) {
+        last30DaysDates.push(formatDateKey(maxDate - i * dayMs));
+      }
+
       skuMap.forEach((val, key) => {
         let ratio = 0;
         if (val.prev21 === 0) {
-          if (val.last7 > 0) ratio = val.last7; // If no previous sales, ratio is the sales count (infinite growth sort of)
+          if (val.last7 > 0) ratio = val.last7; 
           else ratio = 0;
         } else {
           ratio = val.last7 / val.prev21;
         }
+
+        // Format daily sales for chart
+        const dailySales = last30DaysDates.map(date => ({
+          date,
+          count: val.dailyCounts.get(date) || 0
+        }));
 
         results.push({
           sku: key,
@@ -144,7 +170,8 @@ export default function App() {
           last30DaysSales: val.last30,
           growthRatio: ratio,
           last7DaysSales: val.last7,
-          previous21DaysSales: val.prev21
+          previous21DaysSales: val.prev21,
+          dailySales
         });
       });
 
