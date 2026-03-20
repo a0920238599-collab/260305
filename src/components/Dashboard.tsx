@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ZAxis, Cell, LineChart, Line } from 'recharts';
-import { Filter, ArrowUpRight, TrendingUp, ShoppingBag, Download, ChevronLeft, ChevronRight, X, Copy, Check } from 'lucide-react';
+import { Filter, ArrowUpRight, TrendingUp, ShoppingBag, Download, ChevronLeft, ChevronRight, X, Copy, Check, Search, Layers } from 'lucide-react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
 import clsx from 'clsx';
@@ -27,6 +27,47 @@ export function Dashboard({ data, onReset }: DashboardProps) {
   const [pageSize, setPageSize] = useState(10);
   const [selectedSku, setSelectedSku] = useState<SKUData | null>(null);
   const [copied, setCopied] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [exactMatch, setExactMatch] = useState(true);
+
+  const searchedSkus = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const queries = searchQuery.split(/[\s,;，；]+/).filter(Boolean).map(q => q.toLowerCase());
+    return data.filter(item => {
+      const skuLower = item.sku.toLowerCase();
+      if (exactMatch) {
+        return queries.some(q => skuLower === q);
+      } else {
+        return queries.some(q => skuLower.includes(q));
+      }
+    });
+  }, [data, searchQuery, exactMatch]);
+
+  const aggregatedSearchData = useMemo(() => {
+    if (searchedSkus.length === 0) return null;
+    const last30 = searchedSkus.reduce((sum, item) => sum + item.last30DaysSales, 0);
+    const last7 = searchedSkus.reduce((sum, item) => sum + item.last7DaysSales, 0);
+    const prev21 = searchedSkus.reduce((sum, item) => sum + item.previous21DaysSales, 0);
+    const growth = prev21 === 0 ? (last7 > 0 ? 999 : 0) : last7 / prev21;
+
+    const dailyMap = new Map<string, number>();
+    searchedSkus.forEach(sku => {
+      sku.dailySales.forEach(day => {
+        dailyMap.set(day.date, (dailyMap.get(day.date) || 0) + day.count);
+      });
+    });
+    const dailySales = Array.from(dailyMap.entries())
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return {
+      last30DaysSales: last30,
+      last7DaysSales: last7,
+      previous21DaysSales: prev21,
+      growthRatio: growth,
+      dailySales
+    };
+  }, [searchedSkus]);
 
   // Filtered data for the list
   const filteredData = useMemo(() => {
@@ -227,6 +268,130 @@ export function Dashboard({ data, onReset }: DashboardProps) {
             重新上传
           </button>
         </div>
+      </div>
+
+      {/* Search Bar & Results */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <div className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-4">
+          <div className="relative flex-1 w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+            <input
+              type="text"
+              placeholder="搜索 SKU (支持多个，用逗号或空格分隔，例如: 001, 002)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+            />
+          </div>
+          <div className="flex items-center gap-4 shrink-0">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-600 select-none">
+              <input 
+                type="checkbox" 
+                checked={exactMatch} 
+                onChange={(e) => setExactMatch(e.target.checked)}
+                className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+              />
+              精准匹配
+            </label>
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+                清除
+              </button>
+            )}
+          </div>
+        </div>
+
+        {searchQuery.trim() && (
+          <div className="mt-6 border-t border-slate-100 pt-6">
+            <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+              <Layers className="text-blue-500" size={20} />
+              搜索结果 (共匹配 {searchedSkus.length} 个 SKU)
+            </h3>
+            
+            {searchedSkus.length === 0 ? (
+              <div className="text-center text-slate-400 py-8 bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                未找到匹配的 SKU
+              </div>
+            ) : (
+              <div className="space-y-8">
+                {/* Aggregated Stats */}
+                {aggregatedSearchData && (
+                  <div className="bg-blue-50/50 p-5 rounded-xl border border-blue-100">
+                    <h4 className="font-medium text-blue-800 mb-4">合并统计 (Aggregated)</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                      <div className="p-4 bg-white rounded-lg border border-blue-100 shadow-sm">
+                        <p className="text-xs text-slate-500 font-medium mb-1">合计近30天销量</p>
+                        <p className="text-2xl font-bold text-slate-900">{aggregatedSearchData.last30DaysSales}</p>
+                      </div>
+                      <div className="p-4 bg-white rounded-lg border border-blue-100 shadow-sm">
+                        <p className="text-xs text-slate-500 font-medium mb-1">合计近7天销量</p>
+                        <p className="text-2xl font-bold text-slate-900">{aggregatedSearchData.last7DaysSales}</p>
+                      </div>
+                      <div className="p-4 bg-white rounded-lg border border-blue-100 shadow-sm">
+                        <p className="text-xs text-slate-500 font-medium mb-1">合计前21天销量</p>
+                        <p className="text-2xl font-bold text-slate-900">{aggregatedSearchData.previous21DaysSales}</p>
+                      </div>
+                      <div className="p-4 bg-white rounded-lg border border-blue-100 shadow-sm">
+                        <p className="text-xs text-slate-500 font-medium mb-1">综合增长倍率</p>
+                        <p className="text-2xl font-bold text-emerald-600">{aggregatedSearchData.growthRatio.toFixed(2)}x</p>
+                      </div>
+                    </div>
+                    
+                    <div className="h-[300px] w-full bg-white rounded-lg border border-blue-100 p-4 shadow-sm">
+                      <h5 className="text-sm font-semibold text-slate-700 mb-4">合计近30天销售趋势</h5>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={aggregatedSearchData.dailySales} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={(val) => val.slice(5)} axisLine={false} tickLine={false} dy={10} />
+                          <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                          <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} labelStyle={{ color: '#64748b', fontSize: '12px', marginBottom: '4px' }} />
+                          <Line type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={3} dot={{ r: 3, fill: '#3b82f6', strokeWidth: 0 }} activeDot={{ r: 6, strokeWidth: 0 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
+                {/* Individual Stats */}
+                <div>
+                  <h4 className="font-medium text-slate-800 mb-4">独立数据 (点击查看详情)</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {searchedSkus.map((item, idx) => (
+                      <div 
+                        key={`search-${item.sku}-${idx}`} 
+                        onClick={() => handleSkuClick(item)}
+                        className="p-4 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 transition-all group bg-white shadow-sm hover:shadow-md cursor-pointer"
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="font-medium text-slate-800 truncate flex-1 pr-2" title={item.sku}>
+                            {item.sku}
+                          </div>
+                          <span className="text-xs font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full whitespace-nowrap">
+                            +{item.growthRatio.toFixed(1)}x
+                          </span>
+                        </div>
+                        <div className="space-y-1 text-xs text-slate-500">
+                          <div className="flex justify-between">
+                            <span>店铺:</span>
+                            <span className="font-medium text-slate-700 truncate max-w-[120px]" title={item.shopName}>{item.shopName}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>近7天销量:</span>
+                            <span className="font-mono">{item.last7DaysSales}</span>
+                          </div>
+                          <div className="flex justify-between border-t border-slate-100 pt-1 mt-1">
+                            <span>30天: {item.last30DaysSales}</span>
+                            <span>前21天: {item.previous21DaysSales}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Filters */}
